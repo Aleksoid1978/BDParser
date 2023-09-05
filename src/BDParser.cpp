@@ -1,6 +1,4 @@
-﻿#include <cstdint>
-#include <iostream>
-#include <fstream>
+﻿#include <fstream>
 #include <filesystem>
 
 #include "BDParser.hpp"

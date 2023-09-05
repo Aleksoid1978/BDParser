@@ -1,6 +1,7 @@
 ﻿#ifndef BDPARSER_HPP
 #define BDPARSER_HPP
 
+#include <cstdint>
 #include <string>
 #include <string_view>
 #include <vector>
