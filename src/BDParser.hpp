@@ -83,7 +83,7 @@ namespace parser {
 	};
 
 	class BDParser final {
-		[[nodiscard]] bool parse_playlist(const std::string& playlist_path, std::string_view root_path) noexcept;
+		bool parse_playlist(const std::string& playlist_path, std::string_view root_path) noexcept;
 
 	public:
 		BDParser() = default;

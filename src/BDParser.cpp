@@ -308,7 +308,7 @@ namespace parser {
 		}
 
 		seek(stream, playlist_start_address);
-		skip(stream, 6); // length + reserved_for_future_use
+		skip(stream, 6);
 		auto number_of_playlist_items = read_uint16(stream, ec);
 		if (ec) {
 			return false;
@@ -320,7 +320,7 @@ namespace parser {
 		playlist_start_address += 10;
 		for (uint16_t i = 0; i < number_of_playlist_items; i++) {
 			seek(stream, playlist_start_address);
-			playlist_start_address += read_uint16(stream, ec);
+			playlist_start_address += read_uint16(stream, ec) + 2;
 			read_buffer(stream, buffer, 9, ec);
 			if (ec || std::memcmp(&buffer[5], "M2TS", 4)) {
 				return false;
@@ -330,6 +330,12 @@ namespace parser {
 			item.file_name = fmt::format("{}/STREAM/{}{}{}{}{}.M2TS", root_path,
 										 buffer[0], buffer[1], buffer[2], buffer[3], buffer[4]);
 			if (!std::filesystem::exists(item.file_name, ec)) {
+				return false;
+			}
+			if (std::find_if(playlist.items.begin(), playlist.items.end(), [&](const auto& _item) {
+						return item.file_name == _item.file_name;
+					}) != playlist.items.end()) {
+				// Ignore playlists with duplicate files
 				return false;
 			}
 
@@ -402,9 +408,7 @@ namespace parser {
 		std::filesystem::path playlist_path = path / std::filesystem::path("PLAYLIST");
 		for (const auto& entry : std::filesystem::directory_iterator(playlist_path)) {
 			if (entry.is_regular_file() && ends_with(entry.path().string(), ".mpls")) {
-				if (!parse_playlist(entry.path().string(), path)) {
-					return false;
-				}
+				parse_playlist(entry.path().string(), path);
 			}
 		}
 
