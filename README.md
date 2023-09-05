@@ -1,2 +1,1 @@
-# BDParser
-Simple BDParser
+Simple BDParser.

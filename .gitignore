@@ -1,0 +1,9 @@
+*.json
+/.idea
+/.vs
+/_bin
+/_build
+/build
+/out
+/cmake-build-debug
+/cmake-build-release
