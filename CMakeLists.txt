@@ -65,6 +65,7 @@ if(BUILD_SAMPLE)
         endif()
 
         set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT Sample)
+        set_target_properties(Sample PROPERTIES RUNTIME_OUTPUT_DIRECTORY_RELEASE ${PROJECT_BINARY_DIR}/$<0:>)
     endif()
 endif()
 

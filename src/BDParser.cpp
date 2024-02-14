@@ -22,14 +22,14 @@ namespace parser {
 		return (value << 16) | (value >> 16);
 	}
 
-	class IOInterface {
+	class IReader {
 	public:
-		IOInterface() = default;
-		IOInterface(IOInterface&&) = delete;
-		IOInterface(const IOInterface&) = delete;
-		IOInterface& operator=(IOInterface&&) = delete;
-		IOInterface& operator=(const IOInterface&) = delete;
-		virtual ~IOInterface() = default;
+		IReader() = default;
+		IReader(IReader&&) = delete;
+		IReader(const IReader&) = delete;
+		IReader& operator=(IReader&&) = delete;
+		IReader& operator=(const IReader&) = delete;
+		virtual ~IReader() = default;
 
 		[[nodiscard]] virtual bool open(const std::string& path) = 0;
 		virtual void read_buffer(char* buffer, std::size_t size, std::error_code& ec) = 0;
@@ -41,12 +41,12 @@ namespace parser {
 		[[nodiscard]] virtual size_t position(std::error_code& ec) = 0;
 	};
 
-	class IFStreamIO final : public IOInterface
+	class StreamReader final : public IReader
 	{
 		std::ifstream stream_;
 
 	public:
-		explicit IFStreamIO(const std::string& path, std::error_code& ec) {
+		explicit StreamReader(const std::string& path, std::error_code& ec) {
 			if (!open(path)) {
 				ec = std::make_error_code(std::io_errc::stream);
 			}
@@ -114,18 +114,18 @@ namespace parser {
 		}
 	};
 
-	static void read_lang_code(IFStreamIO& io, BDParser::stream_t& s, std::error_code& ec)
+	static void read_lang_code(IReader& reader, BDParser::stream_t& s, std::error_code& ec)
 	{
-		io.read_buffer(s.lang_code, 3, ec);
+		reader.read_buffer(s.lang_code, 3, ec);
 	}
 
-	[[nodiscard]] static bool read_stream_info(IFStreamIO& io, std::vector<BDParser::stream_t>& streams)
+	[[nodiscard]] static bool read_stream_info(IReader& reader, std::vector<BDParser::stream_t>& streams)
 	{
 		std::error_code ec = {};
-		auto size = io.read_uint8(ec);
-		auto pos = io.position(ec);
+		auto size = reader.read_uint8(ec);
+		auto pos = reader.position(ec);
 
-		auto stream_type = io.read_uint8(ec);
+		auto stream_type = reader.read_uint8(ec);
 		if (ec) {
 			return false;
 		}
@@ -134,24 +134,24 @@ namespace parser {
 
 		switch (stream_type) {
 			case 1:
-				s.pid = io.read_uint16(ec);
+				s.pid = reader.read_uint16(ec);
 				break;
 			case 2:
 			case 4:
-				io.skip(2, ec);
-				s.pid = io.read_uint16(ec);
+				reader.skip(2, ec);
+				s.pid = reader.read_uint16(ec);
 				break;
 			case 3:
-				io.skip(1, ec);
-				s.pid = io.read_uint16(ec);
+				reader.skip(1, ec);
+				s.pid = reader.read_uint16(ec);
 				break;
 			default:
 				return false;
 		}
 
-		io.seek(pos + size, ec);
-		size = io.read_uint8(ec);
-		pos = io.position(ec);
+		reader.seek(pos + size, ec);
+		size = reader.read_uint8(ec);
+		pos = reader.position(ec);
 		if (ec) {
 			return false;
 		}
@@ -160,11 +160,11 @@ namespace parser {
 			return s.pid == pid;
 		});
 		if (it != streams.end()) {
-			io.seek(pos + size, ec);
+			reader.seek(pos + size, ec);
 			return true;
 		}
 
-		s.type = static_cast<decltype(s.type)>(io.read_uint8(ec));
+		s.type = static_cast<decltype(s.type)>(reader.read_uint8(ec));
 		if (ec) {
 			return false;
 		}
@@ -177,7 +177,7 @@ namespace parser {
 			case StreamType::HEVC_VIDEO:
 			case StreamType::VC1_VIDEO:
 				{
-					auto value = io.read_uint8(ec);
+					auto value = reader.read_uint8(ec);
 					s.video_format = static_cast<decltype(s.video_format)>(value >> 4);
 					s.frame_rate = static_cast<decltype(s.frame_rate)>(value & 0xf);
 				}
@@ -194,19 +194,19 @@ namespace parser {
 			case StreamType::AC3_PLUS_SECONDARY_AUDIO:
 			case StreamType::DTS_HD_SECONDARY_AUDIO:
 				{
-					auto value = io.read_uint8(ec);
+					auto value = reader.read_uint8(ec);
 					s.channel_layout = static_cast<decltype(s.channel_layout)>(value >> 4);
 					s.sample_rate = static_cast<decltype(s.sample_rate)>(value & 0xf);
-					read_lang_code(io, s, ec);
+					read_lang_code(reader, s, ec);
 				}
 				break;
 			case StreamType::PRESENTATION_GRAPHICS:
 			case StreamType::INTERACTIVE_GRAPHICS:
-				read_lang_code(io, s, ec);
+				read_lang_code(reader, s, ec);
 				break;
 			case StreamType::SUBTITLE:
-				io.skip(1, ec);
-				read_lang_code(io, s, ec);
+				reader.skip(1, ec);
+				read_lang_code(reader, s, ec);
 				break;
 		}
 
@@ -216,29 +216,29 @@ namespace parser {
 
 		streams.emplace_back(s);
 
-		io.seek(pos + size, ec);
+		reader.seek(pos + size, ec);
 
 		return true;
 	}
 
-	[[nodiscard]] static bool read_stn_info(IFStreamIO& io, std::vector<BDParser::stream_t>& streams)
+	[[nodiscard]] static bool read_stn_info(IReader& reader, std::vector<BDParser::stream_t>& streams)
 	{
 		std::error_code ec = {};
-		io.skip(4, ec);
+		reader.skip(4, ec);
 
-		auto num_video = io.read_uint8(ec);
-		auto num_audio = io.read_uint8(ec);
-		auto num_pg = io.read_uint8(ec);
-		auto num_ig = io.read_uint8(ec);
-		auto num_secondary_audio = io.read_uint8(ec);
-		auto num_secondary_video = io.read_uint8(ec);
-		auto num_pip_pg = io.read_uint8(ec);
+		auto num_video = reader.read_uint8(ec);
+		auto num_audio = reader.read_uint8(ec);
+		auto num_pg = reader.read_uint8(ec);
+		auto num_ig = reader.read_uint8(ec);
+		auto num_secondary_audio = reader.read_uint8(ec);
+		auto num_secondary_video = reader.read_uint8(ec);
+		auto num_pip_pg = reader.read_uint8(ec);
 
 		if (ec) {
 			return false;
 		}
 
-		io.skip(5, ec);
+		reader.skip(5, ec);
 
 		if (streams.empty()) {
 			streams.reserve(static_cast<size_t>(num_video) + num_audio + num_pg + num_ig +
@@ -246,41 +246,41 @@ namespace parser {
 		}
 
 		for (uint8_t i = 0; i < num_video; i++) {
-			if (!(read_stream_info(io, streams))) {
+			if (!(read_stream_info(reader, streams))) {
 				return false;
 			}
 		}
 
 		for (uint8_t i = 0; i < num_audio; i++) {
-			if (!(read_stream_info(io, streams))) {
+			if (!(read_stream_info(reader, streams))) {
 				return false;
 			}
 		}
 
 		for (uint8_t i = 0; i < (num_pg + num_pip_pg); i++) {
-			if (!(read_stream_info(io, streams))) {
+			if (!(read_stream_info(reader, streams))) {
 				return false;
 			}
 		}
 
 		for (uint8_t i = 0; i < num_ig; i++) {
-			if (!(read_stream_info(io, streams))) {
+			if (!(read_stream_info(reader, streams))) {
 				return false;
 			}
 		}
 
 		for (uint8_t i = 0; i < num_secondary_audio; i++) {
-			if (!(read_stream_info(io, streams))) {
+			if (!(read_stream_info(reader, streams))) {
 				return false;
 			}
 
 			// Secondary Audio Extra Attributes
-			const auto num_secondary_audio_extra = io.read_uint8(ec);
-			io.skip(1, ec);
+			const auto num_secondary_audio_extra = reader.read_uint8(ec);
+			reader.skip(1, ec);
 			if (num_secondary_audio_extra) {
-				io.skip(num_secondary_audio_extra, ec);
+				reader.skip(num_secondary_audio_extra, ec);
 				if (num_secondary_audio_extra % 2) {
-					io.skip(1, ec);
+					reader.skip(1, ec);
 				}
 			}
 
@@ -290,26 +290,26 @@ namespace parser {
 		}
 
 		for (uint8_t i = 0; i < num_secondary_video; i++) {
-			if (!(read_stream_info(io, streams))) {
+			if (!(read_stream_info(reader, streams))) {
 				return false;
 			}
 
 			// Secondary Video Extra Attributes
-			const auto num_secondary_video_extra = io.read_uint8(ec);
-			io.skip(1, ec);
+			const auto num_secondary_video_extra = reader.read_uint8(ec);
+			reader.skip(1, ec);
 			if (num_secondary_video_extra) {
-				io.skip(num_secondary_video_extra, ec);
+				reader.skip(num_secondary_video_extra, ec);
 				if (num_secondary_video_extra % 2) {
-					io.skip(1, ec);
+					reader.skip(1, ec);
 				}
 			}
 
-			const auto num_pip_pg_extra = io.read_uint8(ec);
-			io.skip(1, ec);
+			const auto num_pip_pg_extra = reader.read_uint8(ec);
+			reader.skip(1, ec);
 			if (num_pip_pg_extra) {
-				io.skip(num_pip_pg_extra, ec);
+				reader.skip(num_pip_pg_extra, ec);
 				if (num_pip_pg_extra % 2) {
-					io.skip(1, ec);
+					reader.skip(1, ec);
 				}
 			}
 
@@ -327,30 +327,30 @@ namespace parser {
 	{
 		std::error_code ec = {};
 
-		IFStreamIO io(playlist_path, ec);
+		StreamReader reader(playlist_path, ec);
 		if (ec) {
 			return false;
 		}
 
 		char buffer[9] = {};
-		io.read_buffer(buffer, 4, ec);
+		reader.read_buffer(buffer, 4, ec);
 		if (ec || std::memcmp(buffer, "MPLS", 4)) {
 			return false;
 		}
 
-		io.read_buffer(buffer, 4, ec);
+		reader.read_buffer(buffer, 4, ec);
 		if (ec || !check_version()) {
 			return false;
 		}
 
-		auto playlist_start_address = io.read_uint32(ec);
+		auto playlist_start_address = reader.read_uint32(ec);
 		if (ec) {
 			return false;
 		}
 
-		io.seek(playlist_start_address, ec);
-		io.skip(6, ec);
-		auto number_of_playlist_items = io.read_uint16(ec);
+		reader.seek(playlist_start_address, ec);
+		reader.skip(6, ec);
+		auto number_of_playlist_items = reader.read_uint16(ec);
 		if (ec) {
 			return false;
 		}
@@ -360,9 +360,9 @@ namespace parser {
 
 		playlist_start_address += 10;
 		for (uint16_t i = 0; i < number_of_playlist_items; i++) {
-			io.seek(playlist_start_address, ec);
-			playlist_start_address += io.read_uint16(ec) + 2;
-			io.read_buffer(buffer, 9, ec);
+			reader.seek(playlist_start_address, ec);
+			playlist_start_address += reader.read_uint16(ec) + 2;
+			reader.read_buffer(buffer, 9, ec);
 			if (ec || std::memcmp(&buffer[5], "M2TS", 4)) {
 				return false;
 			}
@@ -380,13 +380,13 @@ namespace parser {
 				return false;
 			}
 
-			io.read_buffer(buffer, 3, ec);
+			reader.read_buffer(buffer, 3, ec);
 			if (ec) {
 				return false;
 			}
 			bool multi_angle = (buffer[1] >> 4) & 0x1;
-			item.start_pts = static_cast<pts_t>(20000.0 * io.read_uint32(ec) / 90);
-			item.end_pts = static_cast<pts_t>(20000.0 * io.read_uint32(ec) / 90);
+			item.start_pts = static_cast<pts_t>(20000.0 * reader.read_uint32(ec) / 90);
+			item.end_pts = static_cast<pts_t>(20000.0 * reader.read_uint32(ec) / 90);
 			if (ec) {
 				return false;
 			}
@@ -394,23 +394,23 @@ namespace parser {
 			item.start_time = playlist.duration;
 			playlist.duration += (item.end_pts - item.start_pts);
 
-			io.skip(12, ec);
+			reader.skip(12, ec);
 			uint8_t angle_count = 1;
 			if (multi_angle) {
-				angle_count = io.read_uint8(ec);
+				angle_count = reader.read_uint8(ec);
 				if (angle_count < 1) {
 					angle_count = 1;
 				}
-				io.skip(1, ec);
+				reader.skip(1, ec);
 			}
 			for (uint8_t j = 1; j < angle_count; j++) {
-				io.skip(10, ec);
+				reader.skip(10, ec);
 			}
 			if (ec) {
 				return false;
 			}
 
-			if (!read_stn_info(io, playlist.streams)) {
+			if (!read_stn_info(reader, playlist.streams)) {
 				return false;
 			}
 
