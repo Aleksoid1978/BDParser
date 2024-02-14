@@ -323,7 +323,7 @@ namespace parser {
 
 	#define check_version() (!(std::memcmp(buffer, "0300", 4)) || (!std::memcmp(buffer, "0200", 4)) || (!std::memcmp(buffer, "0100", 4)))
 
-	bool BDParser::parse_playlist(const std::string& playlist_path, std::string_view root_path) noexcept
+	bool BDParser::parse_playlist(const std::string& playlist_path, std::string_view root_path, bool check_m2ts_files) noexcept
 	{
 		std::error_code ec = {};
 
@@ -370,7 +370,7 @@ namespace parser {
 			playlist_item_t item;
 			item.file_name = fmt::format("{}/STREAM/{}{}{}{}{}.M2TS", root_path,
 										 buffer[0], buffer[1], buffer[2], buffer[3], buffer[4]);
-			if (!std::filesystem::exists(item.file_name, ec)) {
+			if (check_m2ts_files && !std::filesystem::exists(item.file_name, ec)) {
 				return false;
 			}
 			if (std::find_if(playlist.items.begin(), playlist.items.end(), [&](const auto& _item) {
@@ -426,7 +426,7 @@ namespace parser {
 		return true;
 	}
 
-	bool BDParser::parse(std::string_view path)
+	bool BDParser::parse(std::string_view path, bool check_m2ts_files)
 	{
 		constexpr std::string_view check_paths[] = {
 			"index.bdmv",
@@ -449,7 +449,7 @@ namespace parser {
 		std::filesystem::path playlist_path = path / std::filesystem::path("PLAYLIST");
 		for (const auto& entry : std::filesystem::directory_iterator(playlist_path)) {
 			if (entry.is_regular_file() && string::ends_with(entry.path().string(), ".mpls")) {
-				parse_playlist(entry.path().string(), path);
+				parse_playlist(entry.path().string(), path, check_m2ts_files);
 			}
 		}
 

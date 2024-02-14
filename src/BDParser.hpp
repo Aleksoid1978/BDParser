@@ -84,7 +84,7 @@ namespace parser {
 	};
 
 	class BDParser final {
-		bool parse_playlist(const std::string& playlist_path, std::string_view root_path) noexcept;
+		bool parse_playlist(const std::string& playlist_path, std::string_view root_path, bool check_m2ts_files) noexcept;
 
 	public:
 		BDParser() = default;
@@ -94,7 +94,7 @@ namespace parser {
 		BDParser& operator=(const BDParser&) = delete;
 		~BDParser() = default;
 
-		[[nodiscard]] bool parse(std::string_view path);
+		[[nodiscard]] bool parse(std::string_view path, bool check_m2ts_files = true);
 
 		struct stream_t {
 			uint16_t pid = {};
