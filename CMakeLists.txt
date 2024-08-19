@@ -20,21 +20,14 @@ if(MSVC)
     option(STATIC_MSVC_CRT "Static MSVC runtimes" ON)
 endif()
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-
-add_subdirectory("external/fmt" EXCLUDE_FROM_ALL)
 
 add_library(${PROJECT_NAME}
     "${PROJECT_SOURCE_DIR}/src/BDParser.cpp"
     "${PROJECT_SOURCE_DIR}/src/BDParser.hpp"
 )
 target_include_directories(${PROJECT_NAME} PUBLIC "${PROJECT_SOURCE_DIR}/src")
-
-target_link_libraries(${PROJECT_NAME}
-    PUBLIC
-        fmt::fmt
-)
 
 if(MSVC)
     if(STATIC_MSVC_CRT)
@@ -68,5 +61,3 @@ if(BUILD_SAMPLE)
         set_target_properties(Sample PROPERTIES RUNTIME_OUTPUT_DIRECTORY_RELEASE ${PROJECT_BINARY_DIR}/$<0:>)
     endif()
 endif()
-
-set_property(TARGET fmt PROPERTY FOLDER "External")

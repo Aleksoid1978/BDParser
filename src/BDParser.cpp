@@ -116,7 +116,8 @@ namespace parser {
 
 	static void read_lang_code(IReader& reader, BDParser::stream_t& s, std::error_code& ec)
 	{
-		reader.read_buffer(s.lang_code, 3, ec);
+		s.lang_code.resize(3);
+		reader.read_buffer(s.lang_code.data(), 3, ec);
 	}
 
 	[[nodiscard]] static bool read_stream_info(IReader& reader, std::vector<BDParser::stream_t>& streams)
@@ -323,7 +324,7 @@ namespace parser {
 
 	#define check_version() (!(std::memcmp(buffer, "0300", 4)) || (!std::memcmp(buffer, "0200", 4)) || (!std::memcmp(buffer, "0100", 4)))
 
-	bool BDParser::parse_playlist(const std::string& playlist_path, std::string_view root_path, bool check_m2ts_files) noexcept
+	bool BDParser::parse_playlist(const std::string& playlist_path, std::string_view root_path, bool skip_playlist_duplicate, bool check_m2ts_files) noexcept
 	{
 		std::error_code ec = {};
 
@@ -368,7 +369,7 @@ namespace parser {
 			}
 
 			playlist_item_t item;
-			item.file_name = fmt::format("{}/STREAM/{}{}{}{}{}.M2TS", root_path,
+			item.file_name = std::format("{}/STREAM/{}{}{}{}{}.M2TS", root_path,
 										 buffer[0], buffer[1], buffer[2], buffer[3], buffer[4]);
 			if (check_m2ts_files && !std::filesystem::exists(item.file_name, ec)) {
 				return false;
@@ -421,12 +422,20 @@ namespace parser {
 			return false;
 		}
 
+		if (skip_playlist_duplicate) {
+			for (const auto& item : playlists_) {
+				if (playlist == item) {
+					return false;
+				}
+			}
+		}
+
 		playlists_.emplace_back(std::move(playlist));
 
 		return true;
 	}
 
-	bool BDParser::parse(std::string_view path, bool check_m2ts_files)
+	bool BDParser::parse(std::string_view path, bool skip_playlist_duplicate, bool check_m2ts_files)
 	{
 		constexpr std::string_view check_paths[] = {
 			"index.bdmv",
@@ -449,7 +458,7 @@ namespace parser {
 		std::filesystem::path playlist_path = path / std::filesystem::path("PLAYLIST");
 		for (const auto& entry : std::filesystem::directory_iterator(playlist_path)) {
 			if (entry.is_regular_file() && string::ends_with(entry.path().string(), ".mpls")) {
-				parse_playlist(entry.path().string(), path, check_m2ts_files);
+				parse_playlist(entry.path().string(), path, skip_playlist_duplicate, check_m2ts_files);
 			}
 		}
 

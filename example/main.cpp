@@ -9,7 +9,7 @@ static std::string pts_to_string(parser::pts_t pts)
 	auto second = (ms / 1000) % 60;
 	ms = ms % 1000;
 
-	return fmt::format("{:#02}:{:#02}:{:#02}.{:#03}", hour, minute, second, ms);
+	return std::format("{:#02}:{:#02}:{:#02}.{:#03}", hour, minute, second, ms);
 }
 
 int main(int argc, char** argv)
@@ -20,25 +20,25 @@ int main(int argc, char** argv)
 	}
 
 	parser::BDParser parser;
-	if (!parser.parse(argv[1])) {
+	if (!parser.parse(argv[1], true, false)) {
 		std::cout << "Doesn't look like a valid BD/BDMV path or the files are corrupted" << std::endl;
 		return -1;
 	}
 
 	auto& playlists = parser.playlists();
 	for (const auto& playlist : playlists) {
-		fmt::print("\nPlaylist : {}, duration : {}\n", playlist.mpls_file_name, pts_to_string(playlist.duration));
-		fmt::print("    List of files:\n");
+		std::cout << std::format("\nPlaylist : {}, duration : {}\n", playlist.mpls_file_name, pts_to_string(playlist.duration));
+		std::cout << std::format("    List of files:\n");
 		for (const auto& item : playlist.items) {
-			fmt::print("        Filename : {}\n", item.file_name);
+			std::cout << std::format("        Filename : {}\n", item.file_name);
 		}
 
-		fmt::print("    List of streams:\n");
+		std::cout << std::format("    List of streams:\n");
 		for (const auto& stream : playlist.streams) {
-			fmt::print("        PID : {}, type : {} ({}){}\n",
-					   stream.pid, stream.type,
-					   stream.is_video() ? "Video" : (stream.is_audio() ? "Audio" : "Subtitles"),
-					   stream.lang_code[0] ? fmt::format(", language : {}", stream.lang_code) : "");
+			std::cout << std::format("        PID : {}, type : {} ({}){}\n",
+									 stream.pid, stream.type,
+									 stream.is_video() ? "Video" : (stream.is_audio() ? "Audio" : "Subtitles"),
+									 !stream.lang_code.empty() ? std::format(", language : {}", stream.lang_code) : "");
 		}
 	}
 

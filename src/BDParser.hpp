@@ -6,85 +6,85 @@
 #include <string_view>
 #include <vector>
 
-#include <fmt/format.h>
+#include <format>
 
 namespace parser {
 	using pts_t = uint64_t;
 
 	enum class StreamType {
-		Unknown = 0,
-		MPEG1_VIDEO = 0x01,
-		MPEG2_VIDEO = 0x02,
-		H264_VIDEO = 0x1B,
-		H264_MVC_VIDEO = 0x20,
-		HEVC_VIDEO = 0x24,
-		VC1_VIDEO = 0xEA,
-		MPEG1_AUDIO = 0x03,
-		MPEG2_AUDIO = 0x04,
-		MPEG2_AAC_AUDIO = 0x0F,
-		MPEG4_AAC_AUDIO = 0x11,
-		LPCM_AUDIO = 0x80,
-		AC3_AUDIO = 0x81,
-		AC3_PLUS_AUDIO = 0x84,
+		Unknown                  = 0,
+		MPEG1_VIDEO              = 0x01,
+		MPEG2_VIDEO              = 0x02,
+		H264_VIDEO               = 0x1B,
+		H264_MVC_VIDEO           = 0x20,
+		HEVC_VIDEO               = 0x24,
+		VC1_VIDEO                = 0xEA,
+		MPEG1_AUDIO              = 0x03,
+		MPEG2_AUDIO              = 0x04,
+		MPEG2_AAC_AUDIO          = 0x0F,
+		MPEG4_AAC_AUDIO          = 0x11,
+		LPCM_AUDIO               = 0x80,
+		AC3_AUDIO                = 0x81,
+		AC3_PLUS_AUDIO           = 0x84,
 		AC3_PLUS_SECONDARY_AUDIO = 0xA1,
-		AC3_TRUE_HD_AUDIO = 0x83,
-		DTS_AUDIO = 0x82,
-		DTS_HD_AUDIO = 0x85,
-		DTS_HD_SECONDARY_AUDIO = 0xA2,
-		DTS_HD_MASTER_AUDIO = 0x86,
-		PRESENTATION_GRAPHICS = 0x90,
-		INTERACTIVE_GRAPHICS = 0x91,
-		SUBTITLE = 0x92
+		AC3_TRUE_HD_AUDIO        = 0x83,
+		DTS_AUDIO                = 0x82,
+		DTS_HD_AUDIO             = 0x85,
+		DTS_HD_SECONDARY_AUDIO   = 0xA2,
+		DTS_HD_MASTER_AUDIO      = 0x86,
+		PRESENTATION_GRAPHICS    = 0x90,
+		INTERACTIVE_GRAPHICS     = 0x91,
+		SUBTITLE                 = 0x92
 	};
 
 	enum class VideoFormat {
-		Unknown = 0,
-		VideoFormat_480i = 1,
-		VideoFormat_576i = 2,
-		VideoFormat_480p = 3,
+		Unknown           = 0,
+		VideoFormat_480i  = 1,
+		VideoFormat_576i  = 2,
+		VideoFormat_480p  = 3,
 		VideoFormat_1080i = 4,
-		VideoFormat_720p = 5,
+		VideoFormat_720p  = 5,
 		VideoFormat_1080p = 6,
-		VideoFormat_576p = 7,
+		VideoFormat_576p  = 7,
 		VideoFormat_2160p = 8,
 	};
 
 	enum class FrameRate {
-		Unknown = 0,
+		Unknown          = 0,
 		FrameRate_23_976 = 1,
-		FrameRate_24 = 2,
-		FrameRate_25 = 3,
-		FrameRate_29_97 = 4,
-		FrameRate_50 = 6,
-		FrameRate_59_94 = 7
+		FrameRate_24     = 2,
+		FrameRate_25     = 3,
+		FrameRate_29_97  = 4,
+		FrameRate_50     = 6,
+		FrameRate_59_94  = 7
 	};
 
 	enum class AspectRatio {
-		Unknown = 0,
-		AspectRatio_4_3 = 2,
+		Unknown          = 0,
+		AspectRatio_4_3  = 2,
 		AspectRatio_16_9 = 3,
 		AspectRatio_2_21 = 4
 	};
 
 	enum class ChannelLayout {
-		Unknown = 0,
-		ChannelLayout_MONO = 1,
+		Unknown              = 0,
+		ChannelLayout_MONO   = 1,
 		ChannelLayout_STEREO = 3,
-		ChannelLayout_MULTI = 6,
-		ChannelLayout_COMBO = 12
+		ChannelLayout_MULTI  = 6,
+		ChannelLayout_COMBO  = 12
 	};
 
 	enum class SampleRate {
-		Unknown = 0,
-		SampleRate_48 = 1,
-		SampleRate_96 = 4,
-		SampleRate_192 = 5,
+		Unknown           = 0,
+		SampleRate_48     = 1,
+		SampleRate_96     = 4,
+		SampleRate_192    = 5,
 		SampleRate_48_192 = 12,
-		SampleRate_48_96 = 14
+		SampleRate_48_96  = 14
 	};
 
 	class BDParser final {
-		bool parse_playlist(const std::string& playlist_path, std::string_view root_path, bool check_m2ts_files) noexcept;
+		bool parse_playlist(const std::string& playlist_path, std::string_view root_path, bool skip_playlist_duplicate, bool check_m2ts_files) noexcept;
 
 	public:
 		BDParser() = default;
@@ -94,12 +94,12 @@ namespace parser {
 		BDParser& operator=(const BDParser&) = delete;
 		~BDParser() = default;
 
-		[[nodiscard]] bool parse(std::string_view path, bool check_m2ts_files = true);
+		[[nodiscard]] bool parse(std::string_view path, bool skip_playlist_duplicate, bool check_m2ts_files);
 
 		struct stream_t {
 			uint16_t pid = {};
 			StreamType type = {};
-			char lang_code[4] = {};
+			std::string lang_code;
 
 			// Valid for video types
 			VideoFormat video_format = {};
@@ -119,6 +119,12 @@ namespace parser {
 			bool is_subtitles() const noexcept {
 				return !is_video() && !is_audio();
 			}
+
+			bool operator==(const stream_t& other) const {
+				return pid == other.pid && type == other.type && lang_code == other.lang_code &&
+					video_format == other.video_format && frame_rate == other.frame_rate && aspect_ratio == other.aspect_ratio &&
+					channel_layout == other.channel_layout && sample_rate == other.sample_rate;
+			}
 		};
 
 		struct playlist_item_t {
@@ -127,6 +133,12 @@ namespace parser {
 			pts_t start_pts = {};
 			pts_t end_pts = {};
 			pts_t start_time = {};
+
+			bool operator==(const playlist_item_t& other) const {
+				return file_name == other.file_name &&
+					start_pts == other.start_pts && end_pts == other.end_pts &&
+					start_time == other.start_time;
+			}
 		};
 
 		struct playlist_t {
@@ -135,6 +147,10 @@ namespace parser {
 
 			std::vector<playlist_item_t> items;
 			std::vector<stream_t> streams;
+
+			bool operator==(const playlist_t& other) const {
+				return duration == other.duration && items == other.items && streams == other.streams;
+			}
 		};
 
 	private:
@@ -149,7 +165,7 @@ namespace parser {
 
 // format helpers for parser::StreamType
 template<>
-struct fmt::formatter<parser::StreamType> : fmt::formatter<std::string_view>
+struct std::formatter<parser::StreamType> : std::formatter<std::string_view>
 {
 	static constexpr auto toString(parser::StreamType type) {
 #define UNPACK_VALUE(VALUE) case parser::StreamType::VALUE: return #VALUE; break;
@@ -185,8 +201,8 @@ struct fmt::formatter<parser::StreamType> : fmt::formatter<std::string_view>
 
 public:
 	template<typename FormatContext>
-	constexpr auto format(const parser::StreamType& type, FormatContext& ctx) {
-		return fmt::formatter<std::string_view>::format(toString(type), ctx);
+	constexpr auto format(const parser::StreamType& type, FormatContext& ctx) const {
+		return std::formatter<std::string_view>::format(toString(type), ctx);
 	}
 };
 
