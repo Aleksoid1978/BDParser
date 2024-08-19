@@ -35,10 +35,7 @@ int main(int argc, char** argv)
 
 		std::cout << std::format("    List of streams:\n");
 		for (const auto& stream : playlist.streams) {
-			std::cout << std::format("        PID : {}, type : {} ({}){}\n",
-									 stream.pid, stream.type,
-									 stream.is_video() ? "Video" : (stream.is_audio() ? "Audio" : "Subtitles"),
-									 !stream.lang_code.empty() ? std::format(", language : {}", stream.lang_code) : "");
+			std::cout << std::format("        {}\n", stream);
 		}
 	}
 

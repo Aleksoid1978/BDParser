@@ -83,6 +83,12 @@ namespace parser {
 		SampleRate_48_96  = 14
 	};
 
+	enum class StreamFormat {
+		Video,
+		Audio,
+		Subtitles
+	};
+
 	class BDParser final {
 		bool parse_playlist(const std::string& playlist_path, std::string_view root_path, bool skip_playlist_duplicate, bool check_m2ts_files) noexcept;
 
@@ -110,14 +116,14 @@ namespace parser {
 			ChannelLayout channel_layout = {};
 			SampleRate sample_rate = {};
 
-			bool is_video() const noexcept {
-				return video_format != VideoFormat::Unknown;
-			}
-			bool is_audio() const noexcept {
-				return channel_layout != ChannelLayout::Unknown;
-			}
-			bool is_subtitles() const noexcept {
-				return !is_video() && !is_audio();
+			StreamFormat format() const noexcept {
+				if (video_format != VideoFormat::Unknown) {
+					return StreamFormat::Video;
+				} else if (channel_layout != ChannelLayout::Unknown) {
+					return StreamFormat::Audio;
+				}
+
+				return StreamFormat::Subtitles;
 			}
 
 			bool operator==(const stream_t& other) const {
@@ -163,7 +169,8 @@ namespace parser {
 	};
 } // namespace parser
 
-// format helpers for parser::StreamType
+// format helpers
+
 template<>
 struct std::formatter<parser::StreamType> : std::formatter<std::string_view>
 {
@@ -201,8 +208,95 @@ struct std::formatter<parser::StreamType> : std::formatter<std::string_view>
 
 public:
 	template<typename FormatContext>
-	constexpr auto format(const parser::StreamType& type, FormatContext& ctx) const {
+	constexpr auto format(parser::StreamType type, FormatContext& ctx) const {
 		return std::formatter<std::string_view>::format(toString(type), ctx);
+	}
+};
+
+template<>
+struct std::formatter<parser::StreamFormat> : std::formatter<std::string_view>
+{
+	static constexpr auto toString(parser::StreamFormat type) {
+#define UNPACK_VALUE(VALUE) case parser::StreamFormat::VALUE: return #VALUE; break;
+		switch (type) {
+			UNPACK_VALUE(Video);
+			UNPACK_VALUE(Audio);
+			UNPACK_VALUE(Subtitles);
+
+			default:
+				return "Unknown";
+		};
+#undef UNPACK_VALUE
+	}
+
+public:
+	template<typename FormatContext>
+	constexpr auto format(parser::StreamFormat type, FormatContext& ctx) const {
+		return std::formatter<std::string_view>::format(toString(type), ctx);
+	}
+};
+
+template<>
+struct std::formatter<parser::FrameRate> : std::formatter<std::string_view>
+{
+	static constexpr auto toString(parser::FrameRate rate) {
+		switch (rate) {
+			case parser::FrameRate::FrameRate_23_976: return "23.976";
+			case parser::FrameRate::FrameRate_24:     return "24";
+			case parser::FrameRate::FrameRate_25:     return "25";
+			case parser::FrameRate::FrameRate_29_97:  return "29.97";
+			case parser::FrameRate::FrameRate_50:     return "50";
+			case parser::FrameRate::FrameRate_59_94:  return "59.94";
+			default:
+				return "Unknown";
+		};
+	}
+
+public:
+	template<typename FormatContext>
+	constexpr auto format(parser::FrameRate rate, FormatContext& ctx) const {
+		return std::formatter<std::string_view>::format(toString(rate), ctx);
+	}
+};
+
+template<>
+struct std::formatter<parser::VideoFormat> : std::formatter<std::string_view>
+{
+	static constexpr auto toString(parser::VideoFormat format) {
+		switch (format) {
+			case parser::VideoFormat::VideoFormat_480i:  return "480i";
+			case parser::VideoFormat::VideoFormat_576i:  return "576i";
+			case parser::VideoFormat::VideoFormat_480p:  return "480";
+			case parser::VideoFormat::VideoFormat_1080i: return "1080i";
+			case parser::VideoFormat::VideoFormat_720p:  return "720";
+			case parser::VideoFormat::VideoFormat_1080p: return "1080";
+			case parser::VideoFormat::VideoFormat_576p:  return "576";
+			case parser::VideoFormat::VideoFormat_2160p: return "4k";
+			default:
+				return "Unknown";
+		};
+	}
+
+public:
+	template<typename FormatContext>
+	constexpr auto format(parser::VideoFormat format, FormatContext& ctx) const {
+		return std::formatter<std::string_view>::format(toString(format), ctx);
+	}
+};
+
+template<>
+struct std::formatter<parser::BDParser::stream_t> : std::formatter<std::string_view>
+{
+public:
+	template<typename FormatContext>
+	constexpr auto format(const parser::BDParser::stream_t& stream, FormatContext& ctx) const {
+		auto info = std::format("PID : {}, type : {} ({}{})",
+							   stream.pid, stream.type, stream.format(),
+							   stream.format() == parser::StreamFormat::Video ? std::format(" {}@{}", stream.video_format, stream.frame_rate) : "");
+		if (!stream.lang_code.empty()) {
+			info += std::format(", language : {}", stream.lang_code);
+		}
+		return std::formatter<std::string_view>::format(info, ctx);
 	}
 };
 
