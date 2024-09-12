@@ -209,6 +209,8 @@ namespace parser {
 				reader.skip(1, ec);
 				read_lang_code(reader, s, ec);
 				break;
+			default:
+				break;
 		}
 
 		if (ec) {
