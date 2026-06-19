@@ -1,4 +1,8 @@
-cmake_minimum_required(VERSION 3.5)
+cmake_minimum_required(VERSION 3.15)
+
+if(POLICY CMP0091)
+    cmake_policy(SET CMP0091 NEW)
+endif()
 
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
@@ -18,6 +22,9 @@ endif()
 
 if(MSVC)
     option(STATIC_MSVC_CRT "Static MSVC runtimes" ON)
+    if(STATIC_MSVC_CRT)
+        set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+    endif()
 endif()
 
 set(CMAKE_CXX_STANDARD 20)
@@ -30,13 +37,6 @@ add_library(${PROJECT_NAME}
 target_include_directories(${PROJECT_NAME} PUBLIC "${PROJECT_SOURCE_DIR}/src")
 
 if(MSVC)
-    if(STATIC_MSVC_CRT)
-        target_compile_options(${PROJECT_NAME} PRIVATE
-            "$<$<CONFIG:Debug>:/MTd>"
-            "$<$<CONFIG:Release>:/MT>"
-        )
-    endif()
-
     target_compile_definitions(${PROJECT_NAME} PUBLIC
         "NOMINMAX"
         "UNICODE"
@@ -45,18 +45,11 @@ if(MSVC)
     )
 endif()
 
-if(BUILD_SAMPLE)
+if(BDPARSER_BUILD_SAMPLE)
     add_executable(Sample example/main.cpp)
     target_link_libraries(Sample PRIVATE ${PROJECT_NAME})
 
     if(MSVC)
-        if(STATIC_MSVC_CRT)
-            target_compile_options(Sample PRIVATE
-                "$<$<CONFIG:Debug>:/MTd>"
-                "$<$<CONFIG:Release>:/MT>"
-            )
-        endif()
-
         set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT Sample)
         set_target_properties(Sample PROPERTIES RUNTIME_OUTPUT_DIRECTORY_RELEASE ${PROJECT_BINARY_DIR}/$<0:>)
     endif()

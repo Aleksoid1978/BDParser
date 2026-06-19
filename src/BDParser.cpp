@@ -4,13 +4,6 @@
 #include "BDParser.hpp"
 
 namespace parser {
-	namespace string {
-		[[nodiscard]] static bool ends_with(const std::string& str, const std::string_view suffix) noexcept
-		{
-			return str.size() >= suffix.size() && str.compare(str.size() - suffix.size(), suffix.size(), suffix) == 0;
-		}
-	}
-
 	[[nodiscard]] static uint16_t swap_uint16(uint16_t value) noexcept
 	{
 		return (value << 8) | (value >> 8);
@@ -324,7 +317,158 @@ namespace parser {
 		return true;
 	}
 
-	#define check_version() (!(std::memcmp(buffer, "0300", 4)) || (!std::memcmp(buffer, "0200", 4)) || (!std::memcmp(buffer, "0100", 4)))
+	class BitReader {
+		const uint8_t* m_data;
+		size_t m_size;
+		size_t m_bitPos = 0;
+
+	public:
+		BitReader(const uint8_t* data, size_t size) : m_data(data), m_size(size) {}
+
+		uint32_t read_bits(uint8_t bits) {
+			uint32_t result = 0;
+			while (bits--) {
+				result <<= 1;
+				if (m_bitPos >= m_size * 8) break;
+				result |= (m_data[m_bitPos / 8] >> (7 - (m_bitPos % 8))) & 1;
+				m_bitPos++;
+			}
+			return result;
+		}
+
+		uint32_t read_uint32() {
+			uint32_t result = 0;
+			for (int i = 0; i < 4; i++) {
+				result <<= 8;
+				if (m_bitPos / 8 < m_size) {
+					result |= m_data[m_bitPos / 8];
+					m_bitPos += 8;
+				}
+			}
+			return result;
+		}
+	};
+
+	static bool read_cpi_info(IReader& reader, BDParser::sync_points& sync_points_by_pid)
+	{
+		std::error_code ec = {};
+
+		struct ClpiEpCoarse {
+			uint32_t ref_ep_fine_id;
+			uint16_t pts_ep;
+			uint32_t spn_ep;
+		};
+
+		struct ClpiEpFine {
+			uint8_t is_angle_change_point;
+			uint8_t i_end_position_offset;
+			uint16_t pts_ep;
+			uint32_t spn_ep;
+		};
+
+		struct ClpiEpMapEntry {
+			uint16_t pid;
+			uint8_t ep_stream_type;
+			uint16_t num_ep_coarse;
+			uint32_t num_ep_fine;
+			uint32_t ep_map_stream_start_addr;
+			std::vector<ClpiEpCoarse> coarse;
+			std::vector<ClpiEpFine> fine;
+		};
+
+		auto cpi_start_address = reader.position(ec);
+		if (ec) return false;
+
+		auto len = reader.read_uint32(ec);
+		if (ec || len == 0) return false;
+
+		reader.skip(1, ec);
+		auto type = reader.read_uint8(ec) & 0xF;
+		auto ep_map_pos = cpi_start_address + 4 + 2;
+		reader.skip(1, ec);
+		auto num_stream_pid = reader.read_uint8(ec);
+
+		std::vector<uint8_t> buf(num_stream_pid * 12);
+		reader.read_buffer(reinterpret_cast<char*>(buf.data()), buf.size(), ec);
+		if (ec) return false;
+
+		BitReader br(buf.data(), buf.size());
+		std::vector<ClpiEpMapEntry> clpi_ep_map_list;
+		clpi_ep_map_list.reserve(num_stream_pid);
+
+		for (uint8_t i = 0; i < num_stream_pid; i++) {
+			ClpiEpMapEntry em;
+			em.pid = static_cast<uint16_t>(br.read_bits(16));
+			br.read_bits(10);
+			em.ep_stream_type = static_cast<uint8_t>(br.read_bits(4));
+			em.num_ep_coarse = static_cast<uint16_t>(br.read_bits(16));
+			em.num_ep_fine = br.read_bits(18);
+			em.ep_map_stream_start_addr = br.read_uint32() + ep_map_pos;
+
+			em.coarse.resize(em.num_ep_coarse);
+			em.fine.resize(em.num_ep_fine);
+			clpi_ep_map_list.emplace_back(std::move(em));
+		}
+
+		for (auto& em : clpi_ep_map_list) {
+			reader.seek(em.ep_map_stream_start_addr, ec);
+			if (ec) return false;
+
+			auto fine_start = reader.read_uint32(ec);
+
+			std::vector<uint8_t> coarse_buf(em.num_ep_coarse * 8);
+			reader.read_buffer(reinterpret_cast<char*>(coarse_buf.data()), coarse_buf.size(), ec);
+			if (ec) return false;
+
+			BitReader br_coarse(coarse_buf.data(), coarse_buf.size());
+			for (uint16_t j = 0; j < em.num_ep_coarse; j++) {
+				em.coarse[j].ref_ep_fine_id = br_coarse.read_bits(18);
+				em.coarse[j].pts_ep = static_cast<uint16_t>(br_coarse.read_bits(14));
+				em.coarse[j].spn_ep = br_coarse.read_uint32();
+			}
+
+			reader.seek(em.ep_map_stream_start_addr + fine_start, ec);
+			if (ec) return false;
+
+			std::vector<uint8_t> fine_buf(em.num_ep_fine * 4);
+			reader.read_buffer(reinterpret_cast<char*>(fine_buf.data()), fine_buf.size(), ec);
+			if (ec) return false;
+
+			BitReader gb_fine(fine_buf.data(), fine_buf.size());
+			for (uint32_t j = 0; j < em.num_ep_fine; j++) {
+				em.fine[j].is_angle_change_point = static_cast<uint8_t>(gb_fine.read_bits(1));
+				em.fine[j].i_end_position_offset = static_cast<uint8_t>(gb_fine.read_bits(3));
+				em.fine[j].pts_ep = static_cast<uint16_t>(gb_fine.read_bits(11));
+				em.fine[j].spn_ep = gb_fine.read_bits(17);
+			}
+		}
+
+		if (!clpi_ep_map_list.empty()) {
+			for (auto& entry : clpi_ep_map_list) {
+				auto& sync_points = sync_points_by_pid[entry.pid];
+				sync_points.reserve(entry.num_ep_fine);
+
+				for (uint16_t coarse_index = 0; coarse_index < entry.num_ep_coarse; coarse_index++) {
+					auto& coarse = entry.coarse[coarse_index];
+					auto start = coarse.ref_ep_fine_id;
+					auto end = (coarse_index < entry.num_ep_coarse - 1)
+						? entry.coarse[coarse_index + 1].ref_ep_fine_id
+						: entry.num_ep_fine;
+					auto coarse_pts = static_cast<uint64_t>(coarse.pts_ep & ~0x01) << 18;
+
+					for (uint32_t fine_index = start; fine_index < end; fine_index++) {
+						auto pts = coarse_pts + (static_cast<uint64_t>(entry.fine[fine_index].pts_ep) << 8);
+						auto offset = (static_cast<uint64_t>(coarse.spn_ep & ~0x1FFFF) + entry.fine[fine_index].spn_ep) * 192 + 4;
+
+						auto reftime = pts * 2000 / 9;
+						sync_points.emplace_back(reftime, offset);
+					}
+				}
+			}
+		}
+
+		return true;
+	}
 
 	bool BDParser::parse_playlist(const std::string& playlist_path, std::string_view root_path, bool skip_playlist_duplicate, bool check_m2ts_files) noexcept
 	{
@@ -336,13 +480,16 @@ namespace parser {
 		}
 
 		char buffer[9] = {};
-		reader.read_buffer(buffer, 4, ec);
+		reader.read_buffer(buffer, 8, ec);
 		if (ec || std::memcmp(buffer, "MPLS", 4)) {
 			return false;
 		}
 
-		reader.read_buffer(buffer, 4, ec);
-		if (ec || !check_version()) {
+		auto check_version = [](auto buffer) {
+			return !(std::memcmp(buffer, "0300", 4)) || (!std::memcmp(buffer, "0200", 4)) || (!std::memcmp(buffer, "0100", 4));
+		};
+
+		if (!check_version(buffer + 4)) {
 			return false;
 		}
 
@@ -383,6 +530,11 @@ namespace parser {
 				return false;
 			}
 
+			// Build CLPI path
+			std::string clpi_path = std::format("{}/CLIPINF/{}{}{}{}{}.CLPI",
+												root_path,
+												buffer[0], buffer[1], buffer[2], buffer[3], buffer[4]);
+
 			reader.read_buffer(buffer, 3, ec);
 			if (ec) {
 				return false;
@@ -415,6 +567,24 @@ namespace parser {
 
 			if (!read_stn_info(reader, playlist.streams)) {
 				return false;
+			}
+
+			if (std::filesystem::exists(clpi_path, ec)) {
+				StreamReader clpi_reader(clpi_path, ec);
+				if (!ec) {
+					// Read CLPI header
+					char hdmv_buff[8] = {};
+					clpi_reader.read_buffer(hdmv_buff, 8, ec);
+					if (!ec && !memcmp(hdmv_buff, "HDMV", 4) and check_version(hdmv_buff + 4)) {
+						// Read CPI info
+						clpi_reader.skip(8, ec);  // skip sequence_info_start_address and program_info_start
+						auto cpi_start = clpi_reader.read_uint32(ec);
+						if (!ec) {
+							clpi_reader.seek(cpi_start, ec);
+							read_cpi_info(clpi_reader, item.sync_points_by_pid);
+						}
+					}
+				}
 			}
 
 			playlist.items.emplace_back(std::move(item));
@@ -459,7 +629,7 @@ namespace parser {
 		// Read playlists
 		std::filesystem::path playlist_path = path / std::filesystem::path("PLAYLIST");
 		for (const auto& entry : std::filesystem::directory_iterator(playlist_path)) {
-			if (entry.is_regular_file() && string::ends_with(entry.path().string(), ".mpls")) {
+			if (entry.is_regular_file() && entry.path().string().ends_with(".mpls")) {
 				parse_playlist(entry.path().string(), path, skip_playlist_duplicate, check_m2ts_files);
 			}
 		}

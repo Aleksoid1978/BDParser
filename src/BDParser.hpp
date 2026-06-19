@@ -5,6 +5,7 @@
 #include <string>
 #include <string_view>
 #include <vector>
+#include <map>
 
 #include <format>
 
@@ -133,12 +134,25 @@ namespace parser {
 			}
 		};
 
+		struct sync_point_t {
+			pts_t pts = {};
+			uint64_t offset = {};
+
+			explicit sync_point_t(pts_t _pts, uint64_t _offset)
+				: pts(_pts)
+				, offset(_offset) {}
+		};
+
+		using sync_points = std::map<uint16_t, std::vector<sync_point_t>>;
+
 		struct playlist_item_t {
 			std::string file_name;
 
 			pts_t start_pts = {};
 			pts_t end_pts = {};
 			pts_t start_time = {};
+
+			sync_points sync_points_by_pid;
 
 			bool operator==(const playlist_item_t& other) const {
 				return file_name == other.file_name &&
