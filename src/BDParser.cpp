@@ -470,6 +470,113 @@ namespace parser {
 		return true;
 	}
 
+	static bool read_program_info(IReader& reader, std::vector<BDParser::stream_t>& streams)
+	{
+		std::error_code ec = {};
+
+		auto program_info_start = reader.position(ec);
+		if (ec) return false;
+
+		reader.skip(4, ec);  // length
+		reader.skip(1, ec);  // reserved_for_word_align
+		auto number_of_program_sequences = reader.read_uint8(ec);
+		if (ec) return false;
+
+		for (uint8_t i = 0; i < number_of_program_sequences; i++) {
+			reader.skip(4, ec);  // SPN_program_sequence_start
+			reader.skip(2, ec);  // program_map_PID
+			auto number_of_streams_in_ps = reader.read_uint8(ec);
+			reader.skip(1, ec);  // reserved_for_future_use
+			if (ec) return false;
+
+			for (uint8_t stream_index = 0; stream_index < number_of_streams_in_ps; stream_index++) {
+				BDParser::stream_t s;
+				s.pid = reader.read_uint16(ec);  // stream_PID
+
+				auto pos = reader.position(ec);
+				if (ec) return false;
+
+				// StreamCodingInfo
+				auto len = reader.read_uint8(ec);  // length
+				s.type = static_cast<decltype(s.type)>(reader.read_uint8(ec));
+
+				auto it = std::find_if(streams.begin(), streams.end(), [pid = s.pid](const auto& stream) {
+					return stream.pid == pid;
+				});
+
+				if (it == streams.end()) {
+					it = streams.insert(streams.end(), s);
+				}
+
+				switch (s.type) {
+					case StreamType::MPEG1_VIDEO:
+					case StreamType::MPEG2_VIDEO:
+					case StreamType::H264_VIDEO:
+					case StreamType::H264_MVC_VIDEO:
+					case StreamType::HEVC_VIDEO:
+					case StreamType::VC1_VIDEO: {
+							auto temp = reader.read_uint8(ec);
+							it->video_format = static_cast<decltype(it->video_format)>(temp >> 4);
+							it->frame_rate = static_cast<decltype(it->frame_rate)>(temp & 0xf);
+							temp = reader.read_uint8(ec);
+							it->aspect_ratio = static_cast<decltype(it->aspect_ratio)>(temp >> 4);
+							break;
+						}
+					case StreamType::MPEG1_AUDIO:
+					case StreamType::MPEG2_AUDIO:
+					case StreamType::LPCM_AUDIO:
+					case StreamType::AC3_AUDIO:
+					case StreamType::DTS_AUDIO:
+					case StreamType::AC3_TRUE_HD_AUDIO:
+					case StreamType::AC3_PLUS_AUDIO:
+					case StreamType::DTS_HD_AUDIO:
+					case StreamType::DTS_HD_MASTER_AUDIO:
+					case StreamType::AC3_PLUS_SECONDARY_AUDIO:
+					case StreamType::DTS_HD_SECONDARY_AUDIO: {
+							auto temp = reader.read_uint8(ec);
+							it->channel_layout = static_cast<decltype(it->channel_layout)>(temp >> 4);
+							it->sample_rate = static_cast<decltype(it->sample_rate)>(temp & 0xf);
+
+							if (it->lang_code.empty()) {
+								it->lang_code.resize(3);
+								reader.read_buffer(it->lang_code.data(), 3, ec);
+							} else {
+								reader.skip(3, ec);
+							}
+							break;
+						}
+					case StreamType::PRESENTATION_GRAPHICS:
+					case StreamType::INTERACTIVE_GRAPHICS: {
+							if (it->lang_code.empty()) {
+								it->lang_code.resize(3);
+								reader.read_buffer(it->lang_code.data(), 3, ec);
+							} else {
+								reader.skip(3, ec);
+							}
+							break;
+						}
+					case StreamType::SUBTITLE: {
+							reader.skip(1, ec);  // bd_char_code
+							if (it->lang_code.empty()) {
+								it->lang_code.resize(3);
+								reader.read_buffer(it->lang_code.data(), 3, ec);
+							} else {
+								reader.skip(3, ec);
+							}
+							break;
+						}
+					default:
+						break;
+				}
+
+				reader.seek(pos + len + 1, ec);  // +1 for length byte
+				if (ec) return false;
+			}
+		}
+
+		return true;
+	}
+
 	bool BDParser::parse_playlist(const std::string& playlist_path, std::string_view root_path, bool skip_playlist_duplicate, bool check_m2ts_files) noexcept
 	{
 		std::error_code ec = {};
@@ -577,17 +684,33 @@ namespace parser {
 					clpi_reader.read_buffer(hdmv_buff, 8, ec);
 					if (!ec && !memcmp(hdmv_buff, "HDMV", 4) and check_version(hdmv_buff + 4)) {
 						// Read CPI info
-						clpi_reader.skip(8, ec);  // skip sequence_info_start_address and program_info_start
+						clpi_reader.skip(4, ec);  // skip sequence_info_start_address
+						auto program_info_start = clpi_reader.read_uint32(ec);
 						auto cpi_start = clpi_reader.read_uint32(ec);
 						if (!ec) {
-							clpi_reader.seek(cpi_start, ec);
-							read_cpi_info(clpi_reader, item.sync_points_by_pid);
+							if (program_info_start) {
+								clpi_reader.seek(program_info_start, ec);
+								if (!ec) {
+									read_program_info(clpi_reader, playlist.streams);
+								}
+							}
+
+							if (cpi_start) {
+								clpi_reader.seek(cpi_start, ec);
+								if (!ec) {
+									read_cpi_info(clpi_reader, item.sync_points_by_pid);
+								}
+							}
 						}
 					}
 				}
 			}
 
 			playlist.items.emplace_back(std::move(item));
+
+			std::sort(playlist.streams.begin(), playlist.streams.end(), [&](const auto& a, const auto& b) {
+				return a.pid < b.pid;
+			});
 		}
 
 		if (!playlist.duration) {
